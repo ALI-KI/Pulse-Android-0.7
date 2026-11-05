@@ -1,0 +1,10 @@
+<resources>
+    <style name="PulseTheme" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowBackground">#101321</item>
+        <item name="android:colorAccent">#67D9EB</item>
+        <item name="android:statusBarColor">#101321</item>
+        <item name="android:navigationBarColor">#101321</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>

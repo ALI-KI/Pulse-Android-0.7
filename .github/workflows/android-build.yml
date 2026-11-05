@@ -1,0 +1,69 @@
+name: Build Pulse Android
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+      - name: Install Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Android command-line tools
+        uses: android-actions/setup-android@v3
+      - name: Install Android 36 SDK
+        run: |
+          sdkmanager --install 'platforms;android-36' 'build-tools;36.0.0'
+      - name: Verify vendored library checksums
+        run: sha256sum --check third-party/dependencies.sha256
+      - name: Download Java compiler and test JSON dependency
+        run: |
+          curl -fL --retry 3 -o /tmp/ecj.jar https://repo.maven.apache.org/maven2/org/eclipse/jdt/ecj/3.39.0/ecj-3.39.0.jar
+          curl -fL --retry 3 -o /tmp/json.jar https://repo.maven.apache.org/maven2/org/json/json/20240303/json-20240303.jar
+      - name: Validate playlist storage roundtrip
+        run: |
+          mkdir -p build/jvmtests
+          javac --release 8 -cp /tmp/json.jar -d build/jvmtests \
+            src/main/java/com/pulseplayer/mobile/{Track,Playlist,PlatformLinks}.java \
+            tests/{PlaylistSmoke,PlatformLinksSmoke}.java
+          java -cp build/jvmtests:/tmp/json.jar com.pulseplayer.mobile.PlaylistSmoke
+          java -cp build/jvmtests:/tmp/json.jar com.pulseplayer.mobile.PlatformLinksSmoke
+      - name: Configure signing key
+        env:
+          STORE_B64: ${{ secrets.PULSE_SIGNING_STORE_B64 }}
+          STORE_PASS: ${{ secrets.PULSE_SIGNING_PASSWORD }}
+        run: |
+          if [ -n "$STORE_B64" ] && [ -n "$STORE_PASS" ]; then
+            printf '%s' "$STORE_B64" | base64 -d > "$RUNNER_TEMP/pulse-beta.jks"
+            printf 'PULSE_SIGNING_PASSWORD=%s\n' "$STORE_PASS" >> "$GITHUB_ENV"
+          else
+            keytool -genkeypair -noprompt -keyalg RSA -keysize 3072 \
+              -validity 3650 -alias pulse-beta \
+              -dname 'CN=Pulse CI test key' \
+              -keystore "$RUNNER_TEMP/pulse-beta.jks" \
+              -storepass temporary-test-key -keypass temporary-test-key
+            echo 'PULSE_SIGNING_PASSWORD=temporary-test-key' >> "$GITHUB_ENV"
+            echo 'WARNING: This artifact has a disposable CI signature and cannot upgrade the prior APK.'
+          fi
+      - name: Build signed APK
+        run: |
+          export PULSE_ANDROID_JAR="$ANDROID_HOME/platforms/android-36/android.jar"
+          export PULSE_ANDROID_TOOLS="$ANDROID_HOME/build-tools/36.0.0"
+          export PULSE_ECJ_JAR=/tmp/ecj.jar
+          export PULSE_SIGNING_STORE="$RUNNER_TEMP/pulse-beta.jks"
+          bash build.sh
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Pulse-Android-0.7-beta
+          path: build/Pulse-Android-0.7-beta.apk
+          if-no-files-found: error
