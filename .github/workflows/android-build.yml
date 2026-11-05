@@ -18,11 +18,25 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Install Android command-line tools
-        uses: android-actions/setup-android@v3
+      # v3 requests the retired Android SDK "tools" package, which Google no longer publishes.
+      # v4 installs command-line tools without that legacy package.
+      - name: Setup Android SDK command-line tools
+        uses: android-actions/setup-android@v4
+        with:
+          packages: ''
+          cmdline-tools-version: 15859902
       - name: Install Android 36 SDK
+        shell: bash
         run: |
+          set -euo pipefail
           sdkmanager --install 'platforms;android-36' 'build-tools;36.0.0'
+          test -f "$ANDROID_HOME/platforms/android-36/android.jar"
+          for tool in aapt2 d8 zipalign apksigner; do
+            test -x "$ANDROID_HOME/build-tools/36.0.0/$tool" || {
+              echo "Missing Android build tool: $tool" >&2
+              exit 1
+            }
+          done
       - name: Verify vendored library checksums
         run: sha256sum --check third-party/dependencies.sha256
       - name: Download Java compiler and test JSON dependency
